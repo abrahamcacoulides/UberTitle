@@ -52,5 +52,10 @@ namespace WpfApp2
             Messages.Document.Blocks.Add(new Paragraph(new Run(e.Message)));
             Messages.ScrollToEnd();
         }
+
+        private void TabControl_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+
+        }
     }
 }

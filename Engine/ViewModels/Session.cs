@@ -6,6 +6,10 @@ using Engine.Models;
 using System.IO;
 using System.Diagnostics;
 using System.Threading;
+using NPOI.HSSF.UserModel;
+using NPOI.XSSF.UserModel;
+using NPOI.SS.UserModel;
+using NPOI.HSSF.Util;
 
 namespace Engine.ViewModels
 {
@@ -13,57 +17,10 @@ namespace Engine.ViewModels
     {
         public event EventHandler<MessageEventArgs> OnMessageRaised;
 
-        public List<DWG> _dwg = new List<DWG>();
-        public List<AVersion> _versions = new List<AVersion>();
-        
-        private Process acadProc = new Process();
+        //local list of SO(sales order; jobs!!)
+        static List<SO> jobsList = new List<SO>();
 
-        public string _stringToReturn = "";
-
-        public List<AVersion> Versions
-        {
-            get { return _versions; }
-            private set
-            {
-                _versions = value;
-                OnPropertyChanged(nameof(Versions));
-            }
-        }
-
-        public List<DWG> CurrentDWGList
-        {
-            get { return _dwg; }
-            set
-            {
-                _dwg = value;
-                OnPropertyChanged(nameof(CurrentDWGList));
-            }
-        }
-
-        public AVersion CurrentVersion { get; set; }
-
-        public void RefreshVersions()
-        {
-            _versions.Add(new AVersion(1, "AutoCAD R13", "\"C:\\r13\\win\\acad.exe\"", "C:\\r13\\win\\acad.exe", true));
-            _versions.Add(new AVersion(2, "AutoCAD 14", "\"C:\\Program Files\\Autodesk\\AutoCAD 2014\\acad.exe\" ",
-                "C:\\Program Files\\Autodesk\\AutoCAD 2014\\acad.exe", true));
-            _versions.Add(new AVersion(3, "AutoCAD 17 R1", "\"C:\\Program Files\\Autodesk\\AutoCAD 2017\\acad.exe\" ",
-                "C:\\Program Files\\Autodesk\\AutoCAD 2017\\acad.exe", true));
-            _versions.Add(new AVersion(4, "AutoCAD 17", "\"C:\\Program Files\\Autodesk\\AutoCAD 2017\\acad.exe\" ",
-                "C:\\Program Files\\Autodesk\\AutoCAD 2017\\acad.exe", false));
-        }
-
-        public void RefreshList(List<string> list)
-        {
-            foreach (string file in list)
-            {
-                string dwg_name = file.Split('\\').ToList().Last();
-                string name = dwg_name.Split('.').ToList().First();
-                string job_num = name.Split('-').ToList().First();
-                string page_num = name.Split('-').ToList().Last();
-                CurrentDWGList.Add(new DWG(job_num,page_num,name,file));
-            }
-        }
+        public string _billsPath;
 
         private void RaiseMessage(string message)
         {
@@ -72,88 +29,150 @@ namespace Engine.ViewModels
 
         public void GoButton()
         {
-            if (CurrentDWGList.Count() > 0) //check whether the user selected dwgs or not
+            List<string> facturas = GetExcelFilesInDirectory(_billsPath);
+            
+            ReadBillsInPath(facturas);
+            //foreach(SO job in jobsList)
+            //{
+            //    RaiseMessage(job.PO);
+            //}
+            Facturas();
+            RaiseMessage("Done!");
+        }
+
+        public static List<string> GetExcelFilesInDirectory(string targetDirectory)
+        {
+            List<string> filesList = new List<string>();
+            string[] fileEntries = Directory.GetFiles(targetDirectory, "*.xlsx");
+            foreach (string file in fileEntries)
             {
-                if (CurrentVersion == null) // check if user selected Autocad version
-                {
-                    RaiseMessage("Please Select an AutoCAD Version");
-                    return;
-                }
-                if (!File.Exists(CurrentVersion.CleanPathToVersion)) // check if selected version exists
-                {
-                    RaiseMessage("The AutoCAD version selected wasn't found in this machine");
-                    return;
-                }
-                string directoryName = Path.GetDirectoryName(CurrentDWGList.First().PathToFile);
-                string path = "C:\\r13\\Script.scr";
-
-                if (!Directory.Exists("C:\\r13\\Script.scr")) // check if r13 folder exists
-                {
-                    RaiseMessage("The Script would be generated in C:\\r13\\, looks like this folder doesn't exist in your computer." +
-                        " In order to use this tool please create it.");
-                    return;
-                }
-                if (!File.Exists(directoryName + "\\TITLE.dwg"))
-                {
-                    RaiseMessage("The TITLE block wasnt found. Please make sure the folder in which " +
-                        "your drawings are located include a 'TITLE.dwg' file.");
-                    return;
-                }
-
-                if (!File.Exists(path))//create script file
-                {
-                    // Create a file to write to.
-                    using (StreamWriter sw = File.CreateText(path))
-                    {
-                    }
-                }
-                using (StreamWriter sw = new StreamWriter(path))
-                {
-                    int count = 0;
-                    foreach (DWG item in CurrentDWGList)
-                    {
-                        sw.WriteLine("FILEOPEN");
-                        if (count < 1)
-                        {
-                            sw.WriteLine("Y");
-                        }
-                        sw.WriteLine(item.PathToFile);
-                        sw.WriteLine("(load " + '"' + "DDTITLE" + '"' + ")(TITLE 'INS)");
-                        if (CurrentVersion.RequiresJobNum)
-                        {
-                            sw.WriteLine(item.PageID);
-                        }
-                        sw.WriteLine("_qsave");
-                        sw.WriteLine("");
-                        sw.WriteLine("");
-                        count += 1;
-                    }
-                    sw.WriteLine("_quit");
-                }
-                ProcessStartInfo startInfo = new ProcessStartInfo();
-                startInfo.FileName = CurrentVersion.PathToVersion + "/b \"C:\\r13\\Script.scr\"";
-                startInfo.UseShellExecute = false;
-                startInfo.CreateNoWindow = true;
-                acadProc.EnableRaisingEvents = true;
-                acadProc.StartInfo = startInfo;
-                acadProc.Start();
-                acadProc.WaitForExit();
-
-                RaiseMessage("Done!!");
+                filesList.Add(file);
             }
-            else
+            return filesList;
+        }
+
+        public void ReadBillsInPath(List<string> bills)
+        {
+            int count = 1;
+            XSSFWorkbook billwb;
+
+            foreach (string bill in bills)
             {
-                RaiseMessage("First select the dwgs to update");
+                if (bill.Contains("~$"))
+                {
+                    RaiseMessage("Why?: " + bill);
+                }
+                else
+                {
+                    using (FileStream file = new FileStream(bill, FileMode.Open, FileAccess.Read))
+                    {
+                        billwb = new XSSFWorkbook(file);
+                    }
+
+                    ISheet current_sheet = billwb.GetSheetAt(0);
+
+                    int sheet_count = 25;
+                    int blanks = 0;
+                    while (sheet_count < 500)
+                    {
+                        if (blanks == 3)
+                        {
+                            sheet_count += 1;
+                            break;
+                        }
+                        else if(current_sheet.GetRow(sheet_count) == null)
+                        {
+                            sheet_count += 1;
+                            blanks += 1;
+                        }
+                        else if (current_sheet.GetRow(sheet_count).GetCell(2).CellType != CellType.Numeric || current_sheet.GetRow(sheet_count).GetCell(3).CellType != CellType.Numeric)
+                        {
+                            sheet_count += 1;
+                            blanks += 1;
+                        }
+                        else if (current_sheet.GetRow(sheet_count).GetCell(2) != null && current_sheet.GetRow(sheet_count).GetCell(3) != null)
+                        {
+                            blanks = 0;
+                            string product = current_sheet.GetRow(sheet_count).GetCell(2).NumericCellValue.ToString() + '-' + current_sheet.GetRow(sheet_count).GetCell(3).NumericCellValue.ToString();
+                            if( jobsList.FirstOrDefault(j => j.PO == current_sheet.GetRow(sheet_count).GetCell(3).NumericCellValue.ToString()) != null)
+                            {
+                                Console.WriteLine("PO: " + current_sheet.GetRow(sheet_count).GetCell(3).NumericCellValue.ToString() + " repeated! on bill: " + bill);
+                            }
+                            else
+                            {
+                                string job_num = current_sheet.GetRow(sheet_count).GetCell(2).NumericCellValue.ToString();
+                                string po = current_sheet.GetRow(sheet_count).GetCell(3).NumericCellValue.ToString();
+                                double cost = current_sheet.GetRow(sheet_count).GetCell(10).NumericCellValue;
+                                double addedValue = current_sheet.GetRow(sheet_count).GetCell(9).NumericCellValue;
+                                double weight = current_sheet.GetRow(sheet_count).GetCell(8).NumericCellValue;
+                                string um = current_sheet.GetRow(sheet_count).GetCell(7).ToString();
+                                string factura = bill;
+                                jobsList.Add(new SO(product, job_num, po, cost, addedValue, weight, um, factura));
+                                count += 1;
+                            }
+                            sheet_count += 1;
+                        }
+                        else
+                        {
+                            sheet_count += 1;
+                            blanks += 1;
+                        }
+                    }
+                }
             }
         }
 
-        public string SelectedDWGS()
+        private static void Facturas()
         {
-            foreach(DWG dwg in CurrentDWGList)
+            var newFile = @"newbook.core.xlsx";
+
+            using (var fs = new FileStream(newFile, FileMode.Create, FileAccess.Write))
             {
-                _stringToReturn += dwg.FileName + ";";
+                IWorkbook workbook = new XSSFWorkbook();
+                ISheet current_sheet = workbook.CreateSheet("Results");
+
+                var headerStyle = workbook.CreateCellStyle();
+                headerStyle.FillForegroundColor = HSSFColor.Grey80Percent.Index;
+                headerStyle.FillPattern = FillPattern.SolidForeground;
+                var headerFont = workbook.CreateFont();
+                headerFont.Color = HSSFColor.White.Index;
+                headerFont.IsBold = true;
+
+                IRow headers = current_sheet.CreateRow(0);
+                headers.CreateCell(0).SetCellValue("Producto");
+                headers.CreateCell(1).SetCellValue("Fraccion");
+                headers.CreateCell(2).SetCellValue("Costo");
+                headers.CreateCell(3).SetCellValue("Valor Agregado");
+                headers.CreateCell(4).SetCellValue("Peso");
+                headers.CreateCell(5).SetCellValue("Medida");
+                headers.CreateCell(6).SetCellValue("Po");
+                headers.CreateCell(7).SetCellValue("Factura");
+
+                int row_count = 1;
+                foreach (SO job in jobsList)
+                {
+                    IRow current_row = current_sheet.CreateRow(row_count);
+                    current_row.CreateCell(0).SetCellValue(job.Product); //producto (0)
+                    current_row.CreateCell(2).SetCellValue(job.Cost.ToString()); // costo (2)
+                    current_row.CreateCell(3).SetCellValue(job.AddedValue.ToString()); //valor agregado (3)
+                    current_row.CreateCell(4).SetCellValue(job.Weight.ToString()); // peso (4)
+                    current_row.CreateCell(5).SetCellValue(job.UM); //medida!!
+                    current_row.CreateCell(6).SetCellValue(job.PO.ToString()); //po_only!!
+                    current_row.CreateCell(7).SetCellValue(job.Factura); //factura!!
+                    row_count += 1;
+                }
+
+                IRow headersRow = current_sheet.GetRow(0);
+                for (int i=  0 ; i<8;i++)
+                {
+                    current_sheet.AutoSizeColumn(i);
+                    var cellToFormat = headersRow.GetCell(i);
+                    cellToFormat.CellStyle = headerStyle;
+                    cellToFormat.CellStyle.SetFont(headerFont);
+                }
+                workbook.Write(fs);
             }
-            return _stringToReturn;
+            Console.WriteLine("Excel  Done");
         }
     }
 }

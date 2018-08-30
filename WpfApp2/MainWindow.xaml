@@ -8,8 +8,12 @@
         mc:Ignorable="d"
         Title="UberTitle @ C#" Height="350" Width="235">
     <Grid>
-        <TabControl>
-            <TabItem Header="UberTitle">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="33*"/>
+            <ColumnDefinition Width="194*"/>
+        </Grid.ColumnDefinitions>
+        <TabControl Grid.ColumnSpan="2">
+            <TabItem Header="UberTitle" Margin="0,0,-23,-2">
                 <Border Grid.Row="4" Grid.Column="2"
                         BorderThickness="1"
                         Margin="5">
@@ -77,10 +81,12 @@
                         <Button Grid.Row="3" Grid.Column="1"
                                 Content="Go!" Height="20"
                                 Name="btnGo" Click="btnGo_Click"/>
-                        
+
                     </Grid>
                 </Border>
             </TabItem>
-        </TabControl>   
+            <TabItem Header="Tab2" RenderTransformOrigin="7.416,7.286" Margin="22,0,-26,-2">
+            </TabItem>
+        </TabControl>
     </Grid>
 </Window>
